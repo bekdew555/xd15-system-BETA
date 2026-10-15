@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>XD-15IRS Full Integrated Avionics & Tactical GCS</title>
+  <!-- โหลดไลบรารี AI (TensorFlow.js + COCO-SSD) และระบบสตรีมภาพ WebRTC (PeerJS) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #070a0e;
+      --panel-bg: #0c1219;
+      --hud-green: #00ffa3;
+      --hud-dim: rgba(0, 255, 163, 0.2);
+      --hud-cyan: #00e5ff;
+      --alert-red: #ff3344;
+      --warn-amber: #ffaa00;
+      --border-color: #172a38;
+      --text-muted: #627d98;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--hud-green);
+      font-family: 'Consolas', 'Courier New', monospace;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ================= หน้าจอเลือกโหมดเริ่มต้น (Launcher) ================= */
+    #launcherScreen {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background: radial-gradient(circle, #101c29 0%, #05080b 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .launch-card {
+      border: 1px solid var(--hud-green);
+      background: rgba(12, 18, 25, 0.95);
+      padding: 22px;
+      max-width: 560px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 0 25px rgba(0, 255, 163, 0.15);
+    }
+
+    .room-input {
+      background: #05080b;
+      border: 1px solid var(--hud-cyan);
+      color: var(--hud-cyan);
+      padding: 10px;
+      font-size: 18px;
+      font-family: inherit;
+      text-align: center;
+      width: 100%;
+      margin: 10px 0;
+      font-weight: bold;
+      letter-spacing: 2px;
+    }
+
+    .role-btn {
+      width: 100%;
+      padding: 12px;
+      margin-top: 8px;
+      background: var(--hud-dim);
+      border: 1px solid var(--hud-green);
+      color: var(--hud-green);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .role-btn:hover {
+      background: var(--hud-green);
+      color: #000;
+    }
+
+    .role-btn.cyan {
+      border-color: var(--hud-cyan);
+      color: var(--hud-cyan);
+      background: rgba(0, 229, 255, 0.15);
+    }
+
+    .role-btn.cyan:hover {
+      background: var(--hud-cyan);
+      color: #000;
+    }
+
+    .role-btn.amber {
+      border-color: var(--warn-amber);
+      color: var(--warn-amber);
+      background: rgba(255, 170, 0, 0.12);
+    }
+
+    .role-btn.amber:hover {
+      background: var(--warn-amber);
+      color: #000;
+    }
+
+    /* ปุ่มควบคุมมาตรฐานบน HUD */
+    .hud-btn {
+      background: rgba(7, 10, 14, 0.88);
+      border: 1px solid var(--hud-green);
+      color: var(--hud-green);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: bold;
+      padding: 6px 8px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+
+    .hud-btn:hover, .hud-btn.active {
+      background: var(--hud-green);
+      color: #000;
+    }
+
+    .hud-btn.cyan {
+      border-color: var(--hud-cyan);
+      color: var(--hud-cyan);
+    }
+
+    .hud-btn.cyan:hover, .hud-btn.cyan.active {
+      background: var(--hud-cyan);
+      color: #000;
+    }
+
+    .hud-btn.amber {
+      border-color: var(--warn-amber);
+      color: var(--warn-amber);
+    }
+
+    .hud-btn.amber:hover {
+      background: var(--warn-amber);
+      color: #000;
+    }
+
+    /* ================= โหมดที่ 1: AIRBORNE TGP POD (Realme 7i) ================= */
+    #tgpNodeScreen {
+      display: none;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      background: #000;
+    }
+
+    #tgpCanvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      cursor: crosshair;
+    }
+
+    .tgp-top-bar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.82);
+      border: 1px solid var(--border-color);
+      padding: 8px 12px;
+      font-size: 11px;
+      pointer-events: none;
+    }
+
+    .tgp-bottom-bar {
+      position: absolute;
+      bottom: 12px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.78);
+      padding: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    /* ================= โหมดที่ 3: WIRELESS FPV SENDER (Narzo 50A Prime) ================= */
+    #fpvSenderScreen {
+      display: none;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      background: #000;
+    }
+
+    #fpvSenderVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* ================= โหมดที่ 2: GROUND CONTROL STATION 3 โซน (Xiaomi Pad 7) ================= */
+    #gcsScreen {
+      display: none;
+      grid-template-columns: 28% 47% 25%;
+      width: 100%;
+      height: 100%;
+    }
+
+    .panel {
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      background: var(--panel-bg);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 7px 10px;
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 15;
+    }
+
+    /* 1. โซนซ้าย: TGP / IR Panel */
+    .tgp-feed-container {
+      height: 44%;
+      background: #000;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--border-color);
+      cursor: crosshair;
+    }
+
+    #remoteTgpVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .tgp-overlay-hint {
+      position: absolute;
+      bottom: 4px;
+      right: 6px;
+      font-size: 9px;
+      color: var(--hud-cyan);
+      background: rgba(0, 0, 0, 0.75);
+      padding: 2px 5px;
+      pointer-events: none;
+    }
+
+    .tgp-controls-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(0, 0, 0, 0.35);
+    }
+
+    .tgp-zoom-bar {
+      display: flex;
+      gap: 4px;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .tgp-telemetry {
+      padding: 8px 10px;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      flex: 1;
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dashed rgba(23, 42, 56, 0.7);
+      padding: 3px 0;
+    }
+
+    /* 2. โซนกลาง: FPV CAM & HUD */
+    .fpv-viewport {
+      flex: 1;
+      position: relative;
+      background: #020508;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #fpvVideo {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.72;
+    }
+
+    .fpv-top-controls {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      z-index: 25;
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .hud-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    .heading-tape {
+      position: absolute;
+      top: 42px;
+      border: 1px solid var(--hud-green);
+      padding: 2px 14px;
+      font-size: 13px;
+      font-weight: bold;
+      background: rgba(0, 0, 0, 0.75);
+    }
+
+    .boresight {
+      width: 26px;
+      height: 26px;
+      border: 1.5px solid var(--hud-green);
+      border-radius: 50%;
+      position: absolute;
+    }
+
+    .boresight::after {
+      content: "";
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      background: var(--hud-green);
+      top: 9.5px;
+      left: 9.5px;
+    }
+
+    .horizon-ladder-container {
+      position: absolute;
+      width: 200px;
+      height: 200px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.06s linear;
+    }
+
+    .horizon-line {
+      width: 170px;
+      height: 2px;
+      background: var(--hud-green);
+      box-shadow: 0 0 6px var(--hud-green);
+      position: relative;
+    }
+
+    .horizon-line::before, .horizon-line::after {
+      content: "";
+      position: absolute;
+      width: 2px;
+      height: 8px;
+      background: var(--hud-green);
+      top: -3px;
+    }
+    .horizon-line::before { left: 0; }
+    .horizon-line::after { right: 0; }
+
+    .pitch-rung {
+      width: 70px;
+      height: 1px;
+      background: var(--hud-green);
+      margin: 18px 0;
+      opacity: 0.85;
+    }
+
+    .hud-tape {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.75);
+      border: 1px solid var(--hud-green);
+      padding: 6px 10px;
+      text-align: center;
+      min-width: 68px;
+    }
+
+    .hud-tape-left { left: 14px; }
+    .hud-tape-right { right: 14px; }
+
+    .gyro-box {
+      position: absolute;
+      bottom: 40px;
+      background: rgba(0, 0, 0, 0.8);
+      border: 1px solid var(--hud-green);
+      padding: 4px 12px;
+      display: flex;
+      gap: 14px;
+      font-size: 11px;
+    }
+
+    .hud-bottom-bar {
+      position: absolute;
+      bottom: 10px;
+      display: flex;
+      gap: 12px;
+      font-size: 10px;
+      background: rgba(0, 0, 0, 0.85);
+      padding: 4px 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    /* 3. โซนขวา: สถานะเครื่องบิน XD-15IRS */
+    .status-content {
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      height: calc(100% - 31px);
+      justify-content: space-between;
+      font-size: 11px;
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: bold;
+      color: var(--hud-cyan);
+      border-left: 3px solid var(--hud-cyan);
+      padding-left: 6px;
+      margin-bottom: 5px;
+    }
+
+    .engine-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .engine-box {
+      background: #091017;
+      border: 1px solid var(--border-color);
+      padding: 6px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= หน้าจอเลือกโหมดเริ่มต้น (Launcher) ================= -->
+  <div id="launcherScreen">
+    <div class="launch-card">
+      <h2 style="letter-spacing: 2px; margin-bottom: 6px;">XD-15IRS AVIONICS & GCS</h2>
+      <p style="color: var(--text-muted); font-size: 11px;">
+        ตั้งรหัสห้องเชื่อมต่อให้ตรงกันทุกเครื่อง (รองรับ 1080p ROI AI 20–80m & USB UVC 5.8GHz FPV)
+      </p>
+      <input type="text" id="roomCode" class="room-input" value="XD15-CSAR" placeholder="ตั้งรหัสห้องเชื่อมต่อ">
+
+      <button class="role-btn" onclick="startAirborneNode()">
+        ✈️ โหมดที่ 1: กระเปาะ TGP/AI บนเครื่องบิน (สำหรับ Realme 7i)<br>
+        <span style="font-size:10px; font-weight:normal;">เปิดกล้อง 1080p + ซูมเจาะกลาง 1X/2X/3.5X + AI จับคน + ส่งภาพและ GPS ออกทาง 4G</span>
+      </button>
+
+      <button class="role-btn cyan" onclick="startGroundStation()">
+        🖥️ โหมดที่ 2: จอหลักศูนย์บัญชาการ 3 โซน (สำหรับ Xiaomi Pad 7)<br>
+        <span style="font-size:10px; font-weight:normal;">รับภาพ TGP 4G โซนซ้าย + ต่อตัวรับ OTG 5.8GHz (UVC) เข้าโซนกลาง + สถานะเครื่องโซนขวา</span>
+      </button>
+
+      <button class="role-btn amber" onclick="startWirelessFpvNode()">
+        📹 โหมดที่ 3: กล้องหน้านักบิน FPV ไร้สายสำรอง (สำหรับ Narzo 50A Prime)<br>
+        <span style="font-size:10px; font-weight:normal;">ใช้ส่งภาพกล้องหน้าเครื่องบิน + ไจโร เข้าช่องกลางของ Xiaomi Pad 7 กรณีไม่มีตัวรับ 5.8GHz</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= โหมดที่ 1: บนเครื่องบิน TGP/AI (Realme 7i) ================= -->
+  <div id="tgpNodeScreen">
+    <video id="rawTgpVideo" autoplay playsinline muted style="display:none;"></video>
+    <canvas id="tgpCanvas"></canvas>
+
+    <div class="tgp-top-bar">
+      <span>TGP POD: <strong id="tgpStatusText" style="color:var(--hud-cyan)">INITIALIZING AI...</strong></span>
+      <span id="tgpFpsText">AI FPS: --</span>
+      <span id="tgpLinkStatus" style="color:var(--warn-amber)">LINK: STANDBY</span>
+    </div>
+
+    <div class="tgp-bottom-bar">
+      <button class="hud-btn active" id="airBtnEO" onclick="setFilter('EO')">EO</button>
+      <button class="hud-btn" id="airBtnWHOT" onclick="setFilter('WHOT')">W-HOT</button>
+      <button class="hud-btn" id="airBtnBHOT" onclick="setFilter('BHOT')">B-HOT</button>
+      <button class="hud-btn" id="airBtnIRON" onclick="setFilter('IRON')">IRON</button>
+      <button class="hud-btn" id="airBtnNVG" onclick="setFilter('NVG')">NVG</button>
+      <button class="hud-btn cyan" id="airBtnZoom" onclick="cycleZoom()">🔍 ZOOM: 2.0X (ALT 40m)</button>
+      <button class="hud-btn amber" onclick="clearManualLock()">✖ CLEAR LOCK</button>
+      <button class="hud-btn" onclick="flipAirborneCam()">🔄 FLIP CAM</button>
+    </div>
+  </div>
+
+  <!-- ================= โหมดที่ 3: กล้องหน้า FPV ไร้สายสำรอง (Narzo 50A Prime) ================= -->
+  <div id="fpvSenderScreen">
+    <video id="fpvSenderVideo" autoplay playsinline muted></video>
+    <div class="tgp-top-bar">
+      <span>NOSE FPV SENDER: <strong style="color:var(--warn-amber)">ACTIVE</strong></span>
+      <span id="fpvSenderLinkStatus" style="color:var(--hud-cyan)">WAITING FOR PAD 7...</span>
+    </div>
+  </div>
+
+  <!-- ================= โหมดที่ 2: สถานีภาคพื้นดิน 3 โซน (Xiaomi Pad 7) ================= -->
+  <div id="gcsScreen">
+
+    <!-- 1. โซนซ้าย: TGP / IR & AI SENSOR POD -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>TGP / AI POD [4G STREAM]</span>
+        <span id="gcsLinkBadge" style="color: var(--alert-red)">[WAITING...]</span>
+      </div>
+
+      <!-- จอรับภาพ TGP จาก Realme 7i (แตะบนภาพเพื่อสั่งล็อคเป้าแบบ Manual ข้ามอากาศ) -->
+      <div class="tgp-feed-container" id="gcsTgpContainer">
+        <video id="remoteTgpVideo" autoplay playsinline></video>
+        <div class="tgp-overlay-hint">แตะบนภาพเพื่อล็อคพิกัด (MANUAL LOCK)</div>
+      </div>
+
+      <!-- ปุ่มสลับฟิลเตอร์ 5 โหมดจากระยะไกล -->
+      <div class="tgp-controls-grid">
+        <button class="hud-btn active" id="gcsBtnEO" onclick="sendCommand({filter:'EO'})">EO</button>
+        <button class="hud-btn" id="gcsBtnWHOT" onclick="sendCommand({filter:'WHOT'})">W-HOT</button>
+        <button class="hud-btn" id="gcsBtnBHOT" onclick="sendCommand({filter:'BHOT'})">B-HOT</button>
+        <button class="hud-btn" id="gcsBtnIRON" onclick="sendCommand({filter:'IRON'})">IRON</button>
+        <button class="hud-btn" id="gcsBtnNVG" onclick="sendCommand({filter:'NVG'})">NVG</button>
+      </div>
+
+      <!-- ปุ่มปรับระดับซูมตามเพดานบิน 20-80m จากระยะไกล -->
+      <div class="tgp-zoom-bar">
+        <button class="hud-btn cyan" id="gcsZoom1" style="flex:1" onclick="sendZoomCmd(1.0)">1.0X (20m)</button>
+        <button class="hud-btn cyan active" id="gcsZoom2" style="flex:1" onclick="sendZoomCmd(2.0)">2.0X (40m)</button>
+        <button class="hud-btn cyan" id="gcsZoom3" style="flex:1" onclick="sendZoomCmd(3.5)">3.5X (80m)</button>
+        <button class="hud-btn amber" onclick="sendCommand({clearLock:true})">RESET</button>
+      </div>
+
+      <!-- ข้อมูล Telemetry ของเป้าหมาย -->
+      <div class="tgp-telemetry">
+        <div>
+          <div class="data-row">
+            <span style="color:var(--text-muted)">AI TARGET</span>
+            <span id="gcsTargetTxt" style="color:var(--hud-green); font-weight:bold;">SCANNING...</span>
+          </div>
+          <div class="data-row">
+            <span style="color:var(--text-muted)">TARGET GPS</span>
+            <span id="gcsGpsTxt">15.1124°N, 104.3298°E</span>
+          </div>
+          <div class="data-row">
+            <span style="color:var(--text-muted)">FOV ZOOM</span>
+            <span id="gcsZoomTxt" style="color:var(--hud-cyan)">2.0X (1080p CROP)</span>
+          </div>
+          <div class="data-row">
+            <span style="color:var(--text-muted)">HOTSPOT MAX</span>
+            <span style="color:var(--warn-amber)" id="gcsTempTxt">37.4 °C</span>
+          </div>
+        </div>
+        <button class="hud-btn" style="width:100%" onclick="reconnectTgp()">🔄 เชื่อมต่อสัญญาณ TGP ใหม่</button>
+      </div>
+    </div>
+
+    <!-- 2. โซนกลาง: FPV PRIMARY FLIGHT DISPLAY (รองรับทั้ง OTG 5.8GHz UVC และไร้สาย) -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>FPV CAM [PRIMARY FLIGHT DISPLAY]</span>
+        <span id="fpvStatus" style="color:var(--hud-cyan)">STANDBY</span>
+      </div>
+
+      <div class="fpv-viewport">
+        <video id="fpvVideo" autoplay playsinline muted></video>
+
+        <!-- แถบเลือกกล้อง USB UVC 5.8GHz และปุ่มซิงค์ไจโร/เสียง -->
+        <div class="fpv-top-controls">
+          <select id="fpvCamSelect" class="hud-btn" onchange="startSelectedFpvCam()" style="max-width: 145px;">
+            <option value="">📷 เลือกกล้อง / UVC...</option>
+          </select>
+          <button class="hud-btn" onclick="loadCameraList()">🔄 สแกน USB UVC</button>
+          <button class="hud-btn" onclick="enableLocalGyro()">🧭 ไจโรเครื่องนี้</button>
+          <button class="hud-btn cyan" onclick="toggleAudio()" id="btnAudio">🔊 เสียงเรดาร์: ปิด</button>
+        </div>
+
+        <!-- กราฟิก Fighter HUD Overlay -->
+        <div class="hud-overlay">
+          <div class="heading-tape" id="gcsHeading">045°</div>
+          <div class="boresight"></div>
+
+          <!-- เส้นขอบฟ้าเทียมขยับตาม Pitch & Roll -->
+          <div class="horizon-ladder-container" id="gcsHorizon">
+            <div class="pitch-rung"></div>
+            <div class="horizon-line"></div>
+            <div class="pitch-rung"></div>
+          </div>
+
+          <div class="hud-tape hud-tape-left">
+            <div style="font-size:9px; color:var(--text-muted)">SPD (km/h)</div>
+            <div style="font-size:18px; font-weight:bold" id="gcsSpd">68</div>
+          </div>
+
+          <div class="hud-tape hud-tape-right">
+            <div style="font-size:9px; color:var(--text-muted)">ALT (m AGL)</div>
+            <div style="font-size:18px; font-weight:bold" id="gcsAlt">50</div>
+          </div>
+
+          <div class="gyro-box">
+            <span>ROLL: <strong id="gcsRoll" style="color:var(--hud-cyan)">0°</strong></span>
+            <span>PITCH: <strong id="gcsPitch" style="color:var(--hud-cyan)">0°</strong></span>
+          </div>
+
+          <div class="hud-bottom-bar">
+            <span>GYRO: NB ONE+ 6D</span>
+            <span>TEST ALT: 20-80M</span>
+            <span style="color:var(--hud-green)">CG: 16CM OK</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. โซนขวา: สถานะเครื่องบิน XD-15IRS -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>XD-15IRS AIRFRAME</span>
+        <span style="color:var(--hud-green)">15.2V (4S)</span>
+      </div>
+
+      <div class="status-content">
+        <div style="text-align:center;">
+          <svg width="88" height="112" viewBox="0 0 100 130" fill="none" stroke="#00ffa3" stroke-width="1.5">
+            <path d="M 50 5 L 53 25 L 54 45 L 46 45 L 47 25 Z" />
+            <path d="M 46 45 L 10 90 L 25 90 L 46 80 Z" />
+            <path d="M 54 45 L 90 90 L 75 90 L 54 80 Z" />
+            <rect x="42" y="70" width="16" height="40" />
+            <path d="M 42 105 L 18 122 L 32 122 L 42 115 Z" />
+            <path d="M 58 105 L 82 122 L 68 122 L 58 115 Z" />
+            <line x1="38" y1="85" x2="38" y2="120" stroke-width="2"/>
+            <line x1="62" y1="85" x2="62" y2="120" stroke-width="2"/>
+          </svg>
+          <div style="font-size:10px; color:var(--hud-cyan);">F-15EX (SPAN 1,150 MM)</div>
+        </div>
+
+        <div>
+          <div class="section-title">PROPULSION & STEALTH</div>
+          <div class="engine-grid">
+            <div class="engine-box">
+              <div style="color:var(--text-muted); font-size:9px;">D3548 1100KV</div>
+              <div style="font-size:13px; font-weight:bold;" id="motorRpm">18,420</div>
+              <div style="font-size:9px; color:var(--hud-green);">PUSHER PROP</div>
+            </div>
+            <div class="engine-box">
+              <div style="color:var(--text-muted); font-size:9px;">ESC 80A TEMP</div>
+              <div style="font-size:13px; color:var(--warn-amber);" id="escTemp">44.6 °C</div>
+              <div style="font-size:9px; color:var(--hud-cyan);">FOIL SHIELDED</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-title">AVIONICS & CONTROL
